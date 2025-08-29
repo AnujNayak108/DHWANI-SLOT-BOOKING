@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     const existingRequests = existingRequestSnapshot.val();
     if (existingRequests) {
       const hasPendingRequest = Object.values(existingRequests).some(
-        (req: any) => req.status === 'pending'
+        (req: unknown) => (req as { status: string }).status === 'pending'
       );
       if (hasPendingRequest) {
         return NextResponse.json({ error: 'You already have a pending cancellation request for this booking' }, { status: 400 });
@@ -96,10 +96,9 @@ export async function PUT(req: NextRequest) {
     if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 401 });
 
     const decoded = await adminAuth.verifyIdToken(token);
-    const { uid, email, name } = {
+    const { uid, email } = {
       uid: decoded.uid,
       email: decoded.email || '',
-      name: decoded.name || decoded.email || 'User',
     };
 
     // Verify admin role

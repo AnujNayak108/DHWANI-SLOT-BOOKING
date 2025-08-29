@@ -294,7 +294,7 @@ export default function WeekCalendar() {
               </div>
               <div className="text-sm text-gray-400">
                 Your cancellation request will be reviewed by an administrator. 
-                You will be notified once it's approved or rejected.
+                You will be notified once it&apos;s approved or rejected.
               </div>
               <div className="flex space-x-3">
                 <button

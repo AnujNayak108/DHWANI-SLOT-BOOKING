@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getClientAuth, ADMIN_EMAIL } from '@/lib/firebaseClient';
 
@@ -40,7 +40,7 @@ export default function CancellationRequests() {
     return () => unsub();
   }, []);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!isAdmin) return;
     
     setLoading(true);
@@ -58,13 +58,13 @@ export default function CancellationRequests() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [isAdmin]);
 
   useEffect(() => {
     if (isAdmin) {
       refresh();
     }
-  }, [isAdmin]);
+  }, [isAdmin, refresh]);
 
   async function handleAction(action: 'approve' | 'reject') {
     if (!selectedRequest) return;
