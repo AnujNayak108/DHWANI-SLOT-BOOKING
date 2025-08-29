@@ -5,6 +5,7 @@ import { getCurrentWeekDates } from '@/lib/week';
 export const runtime = 'nodejs';
 
 interface Booking {
+  id: string;
   userId: string;
   userEmail: string;
   userName: string;
@@ -12,6 +13,10 @@ interface Booking {
   slot: number;
   bandName: string;
   createdAt: number;
+  cancelled?: boolean;
+  cancelledAt?: number;
+  cancelledBy?: string;
+  cancelledByEmail?: string;
 }
 
 interface FirebaseBooking {
@@ -22,6 +27,28 @@ interface FirebaseBooking {
   slot: number;
   bandName: string;
   createdAt: number;
+  cancelled?: boolean;
+  cancelledAt?: number;
+  cancelledBy?: string;
+  cancelledByEmail?: string;
+}
+
+interface CancellationRequest {
+  id: string;
+  bookingId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  date: string;
+  slot: number;
+  bandName: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  adminResponse?: string;
+  adminResponseAt?: number;
+  adminId?: string;
+  adminEmail?: string;
 }
 
 export async function GET() {
@@ -35,15 +62,29 @@ export async function GET() {
     // Convert to array and filter by current week dates
     const bookings: Booking[] = [];
     if (allBookings) {
-      Object.values(allBookings).forEach((booking) => {
+      Object.entries(allBookings).forEach(([id, booking]) => {
         if (dates.includes(booking.date)) {
-          bookings.push(booking);
+          bookings.push({
+            id,
+            ...booking,
+          });
         }
       });
     }
     
     // Create a map of date -> slot -> booking for easy lookup
-    const dateSlotMap: Record<string, Record<number, Omit<Booking, 'date' | 'slot'>>> = {};
+    const dateSlotMap: Record<string, Record<number, {
+      bookingId: string;
+      userId: string;
+      userEmail: string;
+      userName: string;
+      bandName: string;
+      createdAt: number;
+      cancelled?: boolean;
+      cancelledAt?: number;
+      cancelledBy?: string;
+      cancelledByEmail?: string;
+    }>> = {};
     dates.forEach(date => {
       dateSlotMap[date] = {};
     });
@@ -51,19 +92,41 @@ export async function GET() {
     bookings.forEach((booking: Booking) => {
       if (dateSlotMap[booking.date]) {
         dateSlotMap[booking.date][booking.slot] = {
+          bookingId: booking.id,
           userId: booking.userId,
           userEmail: booking.userEmail,
           userName: booking.userName,
           bandName: booking.bandName,
-          createdAt: booking.createdAt
+          createdAt: booking.createdAt,
+          cancelled: booking.cancelled,
+          cancelledAt: booking.cancelledAt,
+          cancelledBy: booking.cancelledBy,
+          cancelledByEmail: booking.cancelledByEmail,
         };
       }
     });
+
+    // Get cancellation requests for the current week
+    const cancellationRequestsSnapshot = await adminDb.ref('cancellationRequests').once('value');
+    const allCancellationRequests = cancellationRequestsSnapshot.val() as Record<string, Omit<CancellationRequest, 'id'>> | null;
+    
+    const cancellationRequests: CancellationRequest[] = [];
+    if (allCancellationRequests) {
+      Object.entries(allCancellationRequests).forEach(([id, request]) => {
+        if (dates.includes(request.date)) {
+          cancellationRequests.push({
+            id,
+            ...request,
+          });
+        }
+      });
+    }
     
     return NextResponse.json({ 
       dates, 
       bookings,
-      dateSlotMap 
+      dateSlotMap,
+      cancellationRequests
     });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Failed to load week';

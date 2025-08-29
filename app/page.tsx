@@ -1,5 +1,6 @@
 import LoginButton from '@/components/LoginButton';
 import WeekCalendar from '@/components/WeekCalendar';
+import CancellationRequests from '@/components/CancellationRequests';
 
 export default function Home() {
   return (
@@ -8,7 +9,10 @@ export default function Home() {
         <h1 className="text-2xl font-bold">Music Room Booking</h1>
         <LoginButton />
       </header>
-      <WeekCalendar />
+      <div className="space-y-8">
+        <WeekCalendar />
+        <CancellationRequests />
+      </div>
     </div>
   );
 }

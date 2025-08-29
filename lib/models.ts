@@ -18,5 +18,23 @@ export type WeekViewSlot = {
   bookedByUserId?: string;
 };
 
+export type CancellationRequest = {
+  id: string;
+  bookingId: string;
+  userId: string;
+  userEmail: string;
+  userName: string;
+  date: string;
+  slot: number;
+  bandName: string;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: number;
+  adminResponse?: string;
+  adminResponseAt?: number;
+  adminId?: string;
+  adminEmail?: string;
+};
+
 
 

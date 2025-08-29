@@ -17,6 +17,7 @@ interface BookingData {
 interface FirebaseBooking {
   date: string;
   slot: number;
+  cancelled?: boolean;
 }
 
 export async function POST(req: NextRequest) {
@@ -58,14 +59,16 @@ export async function POST(req: NextRequest) {
     
     const existingBookingsData = existingBookings.val() as Record<string, FirebaseBooking> | null;
     const hasExistingBookingOnDate = existingBookingsData ? 
-      Object.values(existingBookingsData).some((booking: FirebaseBooking) => booking.date === date) : 
+      Object.values(existingBookingsData).some((booking: FirebaseBooking) => 
+        booking.date === date && !booking.cancelled
+      ) : 
       false;
     
     if (hasExistingBookingOnDate) {
       return NextResponse.json({ error: 'You already booked a slot on this date' }, { status: 400 });
     }
 
-    // Ensure slot not taken
+    // Ensure slot not taken (excluding cancelled bookings)
     const slotTaken = await adminDb
       .ref('bookings')
       .orderByChild('date')
@@ -74,7 +77,9 @@ export async function POST(req: NextRequest) {
     
     const slotTakenData = slotTaken.val() as Record<string, FirebaseBooking> | null;
     const isSlotTaken = slotTakenData ? 
-      Object.values(slotTakenData).some((booking: FirebaseBooking) => booking.slot === slot) : 
+      Object.values(slotTakenData).some((booking: FirebaseBooking) => 
+        booking.slot === slot && !booking.cancelled
+      ) : 
       false;
     
     if (isSlotTaken) {
