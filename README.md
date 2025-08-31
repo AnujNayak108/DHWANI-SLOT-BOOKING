@@ -6,6 +6,7 @@ Features
 - Weekly calendar (Mon–Sun, hourly slots)
 - One booking per user per day
 - Multiple admin emails can reset week and manage cancellations
+- Timezone-aware date calculations (consistent across all deployments)
 
 Setup
 1) Create a Firebase project and enable Google Sign-In
@@ -32,6 +33,7 @@ FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
 Notes
 - `NEXT_PUBLIC_ADMIN_EMAIL` supports multiple admin emails separated by commas (e.g., `admin@example.com,admin2@example.com`). These admins can reset the week and manage cancellation requests.
 - For the Admin SDK, use a Service Account key from Firebase console (Project settings > Service accounts). Replace real newlines with `\n`.
+- **Timezone Configuration**: The app uses UTC timezone by default for consistent date calculations across all deployments. To change the timezone, edit `lib/config.ts` and update the `TIMEZONE` value (e.g., 'America/New_York', 'Europe/London', 'Asia/Kolkata').
 
 Run
 ```
