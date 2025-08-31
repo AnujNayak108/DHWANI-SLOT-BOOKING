@@ -5,7 +5,7 @@ export const APP_CONFIG = {
   TIMEZONE: 'Asia/Kolkata',
   
   // Week starts on Monday (1) or Sunday (0)
-  WEEK_STARTS_ON: 0,
+  WEEK_STARTS_ON: 1,
   
   // Available time slots (hour values)
   WEEKDAY_SLOTS: Array.from({ length: 11 }, (_, i) => i + 17), // 17-27 (5:30 PM to 3:30 AM)
