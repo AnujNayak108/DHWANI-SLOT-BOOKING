@@ -4,8 +4,8 @@ Features
 - Google Sign-In via Firebase Authentication
 - Firestore `users` and `bookings`
 - Weekly calendar (Mon–Sun, hourly slots)
-- One booking per user per week
-- Admin email can reset week (clears bookings)
+- One booking per user per day
+- Multiple admin emails can reset week and manage cancellations
 
 Setup
 1) Create a Firebase project and enable Google Sign-In

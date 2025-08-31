@@ -7,7 +7,7 @@ export function getCurrentWeekDates(): string[] {
 
 export function getWeekKey(date: Date = new Date()): string {
   const start = startOfWeek(date, { weekStartsOn: 1 });
-  return format(start, 'yyyy-ww');
+  return format(start, 'yyyy-MM-dd');
 }
 
 

@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getClientAuth, isAdminEmail } from '@/lib/firebaseClient';
-import { getCurrentWeekDates } from '@/lib/week';
+
 
 type Booking = { 
   id: string;
@@ -51,13 +51,14 @@ type CancellationRequest = {
 };
 
 export default function WeekCalendar() {
-  const [dates, setDates] = useState<string[]>(getCurrentWeekDates());
+  const [dates, setDates] = useState<string[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [dateSlotMap, setDateSlotMap] = useState<DateSlotMap>({});
   const [cancellationRequests, setCancellationRequests] = useState<CancellationRequest[]>([]);
   const [uid, setUid] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [datesLoading, setDatesLoading] = useState(true);
   const [showBookingForm, setShowBookingForm] = useState(false);
   const [showCancellationForm, setShowCancellationForm] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -78,12 +79,19 @@ export default function WeekCalendar() {
   }, []);
 
   async function refresh() {
-    const res = await fetch('/api/week', { cache: 'no-store' });
-    const data = await res.json();
-    if (data.dates) setDates(data.dates);
-    if (data.bookings) setBookings(data.bookings);
-    if (data.dateSlotMap) setDateSlotMap(data.dateSlotMap);
-    if (data.cancellationRequests) setCancellationRequests(data.cancellationRequests);
+    setDatesLoading(true);
+    try {
+      const res = await fetch('/api/week', { cache: 'no-store' });
+      const data = await res.json();
+      if (data.dates) setDates(data.dates);
+      if (data.bookings) setBookings(data.bookings);
+      if (data.dateSlotMap) setDateSlotMap(data.dateSlotMap);
+      if (data.cancellationRequests) setCancellationRequests(data.cancellationRequests);
+    } catch (error) {
+      console.error('Failed to load week data:', error);
+    } finally {
+      setDatesLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -227,6 +235,125 @@ export default function WeekCalendar() {
         )}
       </div>
 
+      {datesLoading ? (
+        <div className="text-center py-8">
+          <div className="text-lg">Loading calendar...</div>
+        </div>
+      ) : dates.length === 0 ? (
+        <div className="text-center py-8">
+          <div className="text-lg text-red-600">Failed to load calendar</div>
+        </div>
+              ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-full border text-sm">
+                <thead>
+                  <tr>
+                    <th className="border px-2 py-1">Hour</th>
+                    {dates.map((d) => (
+                      <th key={d} className="border px-2 py-1">
+                        {d}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {Array.from({ length: 11 }).map((_, idx) => {
+                    const hour = idx + 17; // 17-27 (5:30 PM to 3:30 AM, 11 slots)
+                    const displayHour = ((hour % 24) + 24) % 24;
+                    const displayTime = `${String(displayHour).padStart(2, '0')}:30`;
+                    return (
+                      <tr key={hour}>
+                        <td className="border px-2 py-1 font-medium">{displayTime}</td>
+                        {dates.map((d) => {
+                          const booking = dateSlotMap[d]?.[hour];
+                          const isMine = booking && booking.userId === uid;
+                          const isTaken = !!booking;
+                          const hasMyBookingOnDate = hasBookingOnDate(d);
+                          const cancellationRequest = booking ? getCancellationRequest(booking.bookingId) : null;
+                          const hasPendingRequest = booking ? hasPendingCancellationRequest(booking.bookingId) : false;
+                          const isCancelled = booking?.cancelled === true;
+                          
+                          return (
+                            <td key={d + hour} className="border p-1">
+                              {isTaken && !isCancelled ? (
+                                <div
+                                  className={`text-center rounded px-2 py-1 ${
+                                    isMine 
+                                      ? 'bg-green-200 text-green-800' 
+                                      : 'bg-gray-200 text-gray-600'
+                                  }`}
+                                  title={
+                                    isMine 
+                                      ? `Your booking: ${booking.bandName}` 
+                                      : `Booked by: ${booking.bandName}`
+                                  }
+                                >
+                                  <div className="font-medium">
+                                    {isMine ? 'Your booking' : 'Booked'}
+                                  </div>
+                                  <div className="text-xs truncate">
+                                    {booking.bandName}
+                                  </div>
+                                  {isMine && !hasPendingRequest && (
+                                    <button
+                                      onClick={() => requestCancellation(booking.bookingId)}
+                                      className="text-xs text-red-600 hover:text-red-800 mt-1"
+                                      title="Request cancellation"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                  {hasPendingRequest && (
+                                    <div className="text-xs text-orange-600 mt-1">
+                                      Pending
+                                    </div>
+                                  )}
+                                  {cancellationRequest?.status === 'rejected' && (
+                                    <div className="text-xs text-red-600 mt-1">
+                                      Rejected
+                                    </div>
+                                  )}
+                                </div>
+                              ) : isCancelled ? (
+                                <button
+                                  disabled={loading || !uid || hasMyBookingOnDate}
+                                  onClick={() => book(d, hour)}
+                                  className="w-full text-center rounded px-2 py-1 bg-yellow-100 border-2 border-yellow-400 hover:bg-yellow-200 disabled:opacity-50"
+                                  title="This slot was recently cancelled and is available for booking"
+                                >
+                                  <div className="font-medium text-yellow-800">
+                                    Recently Cancelled
+                                  </div>
+                                  <div className="text-xs text-yellow-700 truncate">
+                                    {booking.bandName}
+                                  </div>
+                                  <div className="text-xs text-yellow-600">
+                                    Click to book
+                                  </div>
+                                </button>
+                              ) : (
+                                <button
+                                  disabled={loading || !uid || hasMyBookingOnDate}
+                                  onClick={() => book(d, hour)}
+                                  className="w-full text-center rounded px-2 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                                  title={hasMyBookingOnDate ? 'You already have a booking on this date' : 'Book this slot'}
+                                >
+                                  Book
+                                </button>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
       {/* Booking Form Modal */}
       {showBookingForm && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -320,112 +447,7 @@ export default function WeekCalendar() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border text-sm">
-          <thead>
-            <tr>
-              <th className="border px-2 py-1">Hour</th>
-              {dates.map((d) => (
-                <th key={d} className="border px-2 py-1">
-                  {d}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {Array.from({ length: 11 }).map((_, idx) => {
-              const hour = idx + 17; // 17-27 (5:30 PM to 3:30 AM, 11 slots)
-              const displayHour = ((hour % 24) + 24) % 24;
-              const displayTime = `${String(displayHour).padStart(2, '0')}:30`;
-              return (
-                <tr key={hour}>
-                  <td className="border px-2 py-1 font-medium">{displayTime}</td>
-                  {dates.map((d) => {
-                    const booking = dateSlotMap[d]?.[hour];
-                    const isMine = booking && booking.userId === uid;
-                    const isTaken = !!booking;
-                    const hasMyBookingOnDate = hasBookingOnDate(d);
-                    const cancellationRequest = booking ? getCancellationRequest(booking.bookingId) : null;
-                    const hasPendingRequest = booking ? hasPendingCancellationRequest(booking.bookingId) : false;
-                    const isCancelled = booking?.cancelled === true;
-                    
-                    return (
-                      <td key={d + hour} className="border p-1">
-                        {isTaken && !isCancelled ? (
-                          <div
-                            className={`text-center rounded px-2 py-1 ${
-                              isMine 
-                                ? 'bg-green-200 text-green-800' 
-                                : 'bg-gray-200 text-gray-600'
-                            }`}
-                            title={
-                              isMine 
-                                ? `Your booking: ${booking.bandName}` 
-                                : `Booked by: ${booking.bandName}`
-                            }
-                          >
-                            <div className="font-medium">
-                              {isMine ? 'Your booking' : 'Booked'}
-                            </div>
-                            <div className="text-xs truncate">
-                              {booking.bandName}
-                            </div>
-                            {isMine && !hasPendingRequest && (
-                              <button
-                                onClick={() => requestCancellation(booking.bookingId)}
-                                className="text-xs text-red-600 hover:text-red-800 mt-1"
-                                title="Request cancellation"
-                              >
-                                Cancel
-                              </button>
-                            )}
-                            {hasPendingRequest && (
-                              <div className="text-xs text-orange-600 mt-1">
-                                Pending
-                              </div>
-                            )}
-                            {cancellationRequest?.status === 'rejected' && (
-                              <div className="text-xs text-red-600 mt-1">
-                                Rejected
-                              </div>
-                            )}
-                          </div>
-                        ) : isCancelled ? (
-                          <button
-                            disabled={loading || !uid || hasMyBookingOnDate}
-                            onClick={() => book(d, hour)}
-                            className="w-full text-center rounded px-2 py-1 bg-yellow-100 border-2 border-yellow-400 hover:bg-yellow-200 disabled:opacity-50"
-                            title="This slot was recently cancelled and is available for booking"
-                          >
-                            <div className="font-medium text-yellow-800">
-                              Recently Cancelled
-                            </div>
-                            <div className="text-xs text-yellow-700 truncate">
-                              {booking.bandName}
-                            </div>
-                            <div className="text-xs text-yellow-600">
-                              Click to book
-                            </div>
-                          </button>
-                        ) : (
-                          <button
-                            disabled={loading || !uid || hasMyBookingOnDate}
-                            onClick={() => book(d, hour)}
-                            className="w-full text-center rounded px-2 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                            title={hasMyBookingOnDate ? 'You already have a booking on this date' : 'Book this slot'}
-                          >
-                            Book
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+
     </div>
   );
 }
