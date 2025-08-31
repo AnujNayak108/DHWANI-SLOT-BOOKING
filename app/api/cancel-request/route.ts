@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
+import { adminAuth, adminDb, isAdminEmail } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -102,8 +102,7 @@ export async function PUT(req: NextRequest) {
     };
 
     // Verify admin role
-    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || '';
-    if (email !== adminEmail) {
+    if (!isAdminEmail(email)) {
       return NextResponse.json({ error: 'Admin access required' }, { status: 403 });
     }
 

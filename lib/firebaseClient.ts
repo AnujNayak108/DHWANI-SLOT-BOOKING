@@ -59,7 +59,20 @@ export function getClientDb(): Database {
 
 export const googleProvider = new GoogleAuthProvider();
 
-export const ADMIN_EMAIL = process.env.NEXT_PUBLIC_ADMIN_EMAIL || '';
+// Parse admin emails from comma-separated environment variable
+const adminEmailsString = process.env.NEXT_PUBLIC_ADMIN_EMAIL || '';
+const ADMIN_EMAILS = adminEmailsString
+  .split(',')
+  .map(email => email.trim())
+  .filter(email => email.length > 0);
+
+// Keep backward compatibility with single email for existing code
+export const ADMIN_EMAIL = ADMIN_EMAILS[0] || '';
+
+// Utility function to check if an email is an admin
+export const isAdminEmail = (email: string): boolean => {
+  return ADMIN_EMAILS.includes(email);
+};
 
 
 

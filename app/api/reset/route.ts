@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
+import { adminAuth, adminDb, isAdminEmail } from '@/lib/firebaseAdmin';
 import { getCurrentWeekDates } from '@/lib/week';
 
 export const runtime = 'nodejs';
@@ -15,8 +15,8 @@ export async function POST(req: NextRequest) {
     if (!token) return NextResponse.json({ error: 'Missing token' }, { status: 401 });
     const decoded = await adminAuth.verifyIdToken(token);
     const email = decoded.email || '';
-    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || '';
-    if (!email || email !== adminEmail) {
+    
+    if (!email || !isAdminEmail(email)) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 

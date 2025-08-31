@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { getClientAuth, ADMIN_EMAIL } from '@/lib/firebaseClient';
+import { getClientAuth, isAdminEmail } from '@/lib/firebaseClient';
 import { getCurrentWeekDates } from '@/lib/week';
 
 type Booking = { 
@@ -66,7 +66,7 @@ export default function WeekCalendar() {
   const [bandName, setBandName] = useState<string>('');
   const [cancellationReason, setCancellationReason] = useState<string>('');
 
-  const isAdmin = email === ADMIN_EMAIL;
+  const isAdmin = email ? isAdminEmail(email) : false;
 
   useEffect(() => {
     const auth = getClientAuth();

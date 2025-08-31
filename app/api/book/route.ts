@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { adminAuth, adminDb } from '@/lib/firebaseAdmin';
+import { adminAuth, adminDb, isAdminEmail } from '@/lib/firebaseAdmin';
 
 export const runtime = 'nodejs';
 
@@ -40,8 +40,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Ensure user doc exists and role
-    const adminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || '';
-    const role = email && email === adminEmail ? 'admin' : 'user';
+    const role = email && isAdminEmail(email) ? 'admin' : 'user';
     const userRef = adminDb.ref(`users/${uid}`);
     await userRef.set({
       email, 

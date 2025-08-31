@@ -26,5 +26,16 @@ if (!getApps().length) {
 export const adminAuth = getAdminAuth(adminApp);
 export const adminDb = getAdminDatabase(adminApp);
 
+// Utility function to check if an email is an admin
+export const isAdminEmail = (email: string): boolean => {
+  const adminEmailsString = process.env.NEXT_PUBLIC_ADMIN_EMAIL || process.env.ADMIN_EMAIL || '';
+  const adminEmails = adminEmailsString
+    .split(',')
+    .map(email => email.trim())
+    .filter(email => email.length > 0);
+  
+  return adminEmails.includes(email);
+};
+
 
 

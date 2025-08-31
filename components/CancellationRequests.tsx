@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
-import { getClientAuth, ADMIN_EMAIL } from '@/lib/firebaseClient';
+import { getClientAuth, isAdminEmail } from '@/lib/firebaseClient';
 
 type CancellationRequest = {
   id: string;
@@ -30,7 +30,7 @@ export default function CancellationRequests() {
   const [adminResponse, setAdminResponse] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  const isAdmin = email === ADMIN_EMAIL;
+  const isAdmin = email ? isAdminEmail(email) : false;
 
   useEffect(() => {
     const auth = getClientAuth();
@@ -147,7 +147,7 @@ export default function CancellationRequests() {
         ) : (
           <div className="space-y-3">
             {pendingRequests.map((request) => (
-              <div key={request.id} className="border rounded-lg p-4 bg-gray-50">
+              <div key={request.id} className="border rounded-lg p-4 bg-black">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <div className="font-medium">{request.bandName}</div>
@@ -162,7 +162,7 @@ export default function CancellationRequests() {
                 </div>
                 <div className="mb-3">
                   <div className="text-sm font-medium mb-1">Reason for cancellation:</div>
-                  <div className="text-sm bg-white p-2 rounded border">{request.reason}</div>
+                  <div className="text-sm bg-white text-black p-2 rounded border">{request.reason}</div>
                 </div>
                 <div className="text-xs text-gray-500 mb-3">
                   Requested on: {formatDateTime(request.createdAt)}
@@ -187,7 +187,7 @@ export default function CancellationRequests() {
           <h3 className="text-lg font-medium mb-3">Processed Requests ({processedRequests.length})</h3>
           <div className="space-y-3">
             {processedRequests.map((request) => (
-              <div key={request.id} className="border rounded-lg p-4 bg-gray-50">
+              <div key={request.id} className="border rounded-lg p-4 bg-black">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <div className="font-medium">{request.bandName}</div>
@@ -207,12 +207,12 @@ export default function CancellationRequests() {
                 </div>
                 <div className="mb-3">
                   <div className="text-sm font-medium mb-1">Reason for cancellation:</div>
-                  <div className="text-sm bg-white p-2 rounded border">{request.reason}</div>
+                  <div className="text-sm bg-white text-black p-2 rounded border">{request.reason}</div>
                 </div>
                 {request.adminResponse && (
                   <div className="mb-3">
                     <div className="text-sm font-medium mb-1">Admin response:</div>
-                    <div className="text-sm bg-white p-2 rounded border">{request.adminResponse}</div>
+                    <div className="text-sm bg-white text-black p-2 rounded border">{request.adminResponse}</div>
                   </div>
                 )}
                 <div className="text-xs text-gray-500">

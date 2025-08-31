@@ -1,5 +1,5 @@
 "use client";
-import { getClientAuth, googleProvider, ADMIN_EMAIL } from '@/lib/firebaseClient';
+import { getClientAuth, googleProvider, isAdminEmail } from '@/lib/firebaseClient';
 import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { useEffect, useState } from 'react';
 
@@ -27,7 +27,7 @@ export default function LoginButton() {
     );
   }
 
-  const isAdmin = user.email === ADMIN_EMAIL;
+  const isAdmin = user.email ? isAdminEmail(user.email) : false;
 
   return (
     <div className="flex items-center gap-3">
