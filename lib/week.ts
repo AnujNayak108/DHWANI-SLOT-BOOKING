@@ -21,11 +21,9 @@ export function getCurrentWeekDates(): string[] {
   // Get the start of the week (Monday) in the specified timezone
   const start = startOfWeek(zonedNow, { weekStartsOn: APP_CONFIG.WEEK_STARTS_ON });
   
-  // Convert back to UTC for consistent processing
-  const utcStart = fromZonedTime(start, APP_CONFIG.TIMEZONE);
-  
+  // Generate dates directly in the timezone without converting back to UTC
   return Array.from({ length: 7 }).map((_, i) => {
-    const date = addDays(utcStart, i);
+    const date = addDays(start, i);
     return format(date, 'yyyy-MM-dd');
   });
 }
@@ -34,8 +32,7 @@ export function getWeekKey(date: Date = new Date()): string {
   // Convert the input date to the specified timezone
   const zonedDate = toZonedTime(date, APP_CONFIG.TIMEZONE);
   const start = startOfWeek(zonedDate, { weekStartsOn: APP_CONFIG.WEEK_STARTS_ON });
-  const utcStart = fromZonedTime(start, APP_CONFIG.TIMEZONE);
-  return format(utcStart, 'yyyy-MM-dd');
+  return format(start, 'yyyy-MM-dd');
 }
 
 

@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getClientAuth, isAdminEmail } from '@/lib/firebaseClient';
+import { toZonedTime } from 'date-fns-tz';
 
 
 type Booking = { 
@@ -96,6 +97,35 @@ export default function WeekCalendar() {
 
   useEffect(() => {
     refresh();
+    
+    // Set up automatic refresh at midnight India time
+    const scheduleMidnightRefresh = () => {
+      const now = new Date();
+      
+      // Get current time in India timezone
+      const indiaTime = toZonedTime(now, 'Asia/Kolkata');
+      
+      // Calculate next midnight in India timezone
+      const nextMidnight = new Date(indiaTime);
+      nextMidnight.setDate(nextMidnight.getDate() + 1);
+      nextMidnight.setHours(0, 0, 0, 0);
+      
+      // Calculate milliseconds until next midnight
+      const msUntilMidnight = nextMidnight.getTime() - indiaTime.getTime();
+      
+      const timeoutId = setTimeout(() => {
+        refresh();
+        // Schedule the next midnight refresh
+        scheduleMidnightRefresh();
+      }, msUntilMidnight);
+      
+      return timeoutId;
+    };
+    
+    const timeoutId = scheduleMidnightRefresh();
+    
+    // Cleanup timeout on unmount
+    return () => clearTimeout(timeoutId);
   }, []);
 
   // Check if user has any booking on a specific date (daily restriction)
