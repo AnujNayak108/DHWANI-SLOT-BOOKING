@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { getClientAuth, isAdminEmail } from '@/lib/firebaseClient';
 import { toZonedTime } from 'date-fns-tz';
-
+import { APP_CONFIG, isWeekend, getDayName } from '@/lib/config';
 
 type Booking = { 
   id: string;
@@ -49,6 +49,7 @@ type CancellationRequest = {
   adminResponseAt?: number;
   adminId?: string;
   adminEmail?: string;
+  autoApproved?: boolean;
 };
 
 export default function WeekCalendar() {
@@ -67,6 +68,7 @@ export default function WeekCalendar() {
   const [selectedBookingId, setSelectedBookingId] = useState<string>('');
   const [bandName, setBandName] = useState<string>('');
   const [cancellationReason, setCancellationReason] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'weekdays' | 'weekends'>('weekdays');
 
   const isAdmin = email ? isAdminEmail(email) : false;
 
@@ -98,24 +100,16 @@ export default function WeekCalendar() {
   useEffect(() => {
     refresh();
     
-    // Set up automatic refresh at midnight India time
     const scheduleMidnightRefresh = () => {
       const now = new Date();
-      
-      // Get current time in India timezone
       const indiaTime = toZonedTime(now, 'Asia/Kolkata');
-      
-      // Calculate next midnight in India timezone
       const nextMidnight = new Date(indiaTime);
       nextMidnight.setDate(nextMidnight.getDate() + 1);
       nextMidnight.setHours(0, 0, 0, 0);
-      
-      // Calculate milliseconds until next midnight
       const msUntilMidnight = nextMidnight.getTime() - indiaTime.getTime();
       
       const timeoutId = setTimeout(() => {
         refresh();
-        // Schedule the next midnight refresh
         scheduleMidnightRefresh();
       }, msUntilMidnight);
       
@@ -123,33 +117,49 @@ export default function WeekCalendar() {
     };
     
     const timeoutId = scheduleMidnightRefresh();
-    
-    // Cleanup timeout on unmount
     return () => clearTimeout(timeoutId);
   }, []);
 
-  // Check if user has any booking on a specific date (daily restriction)
+  // Separate weekdays and weekends
+  const weekdays = dates.filter(d => !isWeekend(d));
+  const weekends = dates.filter(d => isWeekend(d));
+
+  // Check if user has any booking on a specific date
   const hasBookingOnDate = (date: string) => {
     return bookings.some(b => b.userId === uid && b.date === date && !b.cancelled);
   };
 
-  // Check if user has a pending cancellation request for a booking
+  // Check how many slots user has booked on a weekend date
+  const getWeekendBookingCount = (date: string) => {
+    if (!isWeekend(date)) return 0;
+    return bookings.filter(b => b.userId === uid && b.date === date && !b.cancelled).length;
+  };
+
   const hasPendingCancellationRequest = (bookingId: string) => {
     return cancellationRequests.some(
       req => req.bookingId === bookingId && req.status === 'pending'
     );
   };
 
-  // Get cancellation request for a booking
   const getCancellationRequest = (bookingId: string) => {
     return cancellationRequests.find(req => req.bookingId === bookingId);
   };
 
   async function book(date: string, slot: number) {
     if (!uid) return alert('Sign in first');
-    if (hasBookingOnDate(date)) return alert('You already booked a slot on this date');
     
-    // Check if the slot is actually available (not taken by someone else)
+    // Check booking limits
+    if (isWeekend(date)) {
+      const weekendBookingCount = getWeekendBookingCount(date);
+      if (weekendBookingCount >= APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND) {
+        return alert(`You can only book ${APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND} slots per day on weekends`);
+      }
+    } else {
+      if (hasBookingOnDate(date)) {
+        return alert('You already booked a slot on this date');
+      }
+    }
+    
     const existingBooking = bookings.find(b => b.date === date && b.slot === slot && !b.cancelled);
     if (existingBooking) {
       return alert('This slot is already booked by someone else');
@@ -218,7 +228,13 @@ export default function WeekCalendar() {
       setCancellationReason('');
       setSelectedBookingId('');
       await refresh();
-      alert('Cancellation request submitted successfully. Waiting for admin approval.');
+      
+      // Show appropriate message based on auto-approval
+      if (data.autoApproved) {
+        alert('✅ Your cancellation has been automatically approved (requested 2+ hours before slot time)');
+      } else {
+        alert('Cancellation request submitted successfully. Waiting for admin approval.');
+      }
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Failed to submit cancellation request';
       alert(message);
@@ -250,181 +266,357 @@ export default function WeekCalendar() {
     }
   }
 
+  // Format time display
+  const formatTime = (hour: number, isWeekendSlot: boolean = false) => {
+    const displayHour = ((hour % 24) + 24) % 24;
+    if (isWeekendSlot) {
+      // Weekend slots are hourly (8 AM to 11 PM)
+      return `${String(displayHour).padStart(2, '0')}:00`;
+    }
+    // Weekday slots are at :30 (5:30 PM to 3:30 AM)
+    return `${String(displayHour).padStart(2, '0')}:30`;
+  };
+
+  // Format date for display
+  const formatDateDisplay = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return {
+      day: getDayName(dateStr).slice(0, 3),
+      date: date.getDate(),
+      month: date.toLocaleDateString('en-US', { month: 'short' })
+    };
+  };
+
+  // Render slot cell
+  const renderSlotCell = (d: string, hour: number, isWeekendSlot: boolean = false) => {
+    const booking = dateSlotMap[d]?.[hour];
+    const isMine = booking && booking.userId === uid;
+    const isTaken = !!booking;
+    const isWeekendDate = isWeekend(d);
+    const weekendBookingCount = isWeekendDate ? getWeekendBookingCount(d) : 0;
+    const canBookMore = isWeekendDate ? weekendBookingCount < APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND : !hasBookingOnDate(d);
+    const cancellationRequest = booking ? getCancellationRequest(booking.bookingId) : null;
+    const hasPendingRequest = booking ? hasPendingCancellationRequest(booking.bookingId) : false;
+    const isCancelled = booking?.cancelled === true;
+
+    if (isTaken && !isCancelled) {
+      return (
+        <div
+          className={`rounded-xl p-3 transition-all ${
+            isMine 
+              ? 'bg-emerald-500/20 border-2 border-emerald-500/50 dark:bg-emerald-500/10' 
+              : 'bg-slate-200 dark:bg-slate-700/50 border-2 border-slate-300 dark:border-slate-600'
+          }`}
+          title={isMine ? `Your booking: ${booking.bandName}` : `Booked by: ${booking.bandName}`}
+        >
+          <div className={`font-semibold text-sm ${isMine ? 'text-emerald-700 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300'}`}>
+            {isMine ? '🎸 Your Booking' : '🔒 Booked'}
+          </div>
+          <div className={`text-xs mt-1 truncate ${isMine ? 'text-emerald-600 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}`}>
+            {booking.bandName}
+          </div>
+          {isMine && !hasPendingRequest && (
+            <button
+              onClick={() => requestCancellation(booking.bookingId)}
+              className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 mt-2 font-medium transition-colors"
+              title="Request cancellation"
+            >
+              ✕ Cancel
+            </button>
+          )}
+          {hasPendingRequest && (
+            <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 font-medium flex items-center gap-1">
+              <span className="animate-pulse">⏳</span> Pending
+            </div>
+          )}
+          {cancellationRequest?.status === 'rejected' && (
+            <div className="text-xs text-red-500 dark:text-red-400 mt-2 font-medium">
+              ❌ Rejected
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (isCancelled) {
+      return (
+        <button
+          disabled={loading || !uid || !canBookMore}
+          onClick={() => book(d, hour)}
+          className="w-full rounded-xl p-3 bg-amber-100 dark:bg-amber-900/30 border-2 border-amber-400 dark:border-amber-600 hover:bg-amber-200 dark:hover:bg-amber-900/50 disabled:opacity-50 transition-all text-left"
+          title="This slot was recently cancelled and is available for booking"
+        >
+          <div className="font-semibold text-amber-700 dark:text-amber-400 text-sm">
+            🔓 Available
+          </div>
+          <div className="text-xs text-amber-600 dark:text-amber-300 mt-1 truncate">
+            Was: {booking.bandName}
+          </div>
+          <div className="text-xs text-amber-500 dark:text-amber-400 mt-1 font-medium">
+            Click to book
+          </div>
+        </button>
+      );
+    }
+
+    const slotLimitMessage = isWeekendDate 
+      ? (weekendBookingCount >= APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND 
+          ? `You've reached the limit (${APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND} slots/day)` 
+          : `Book slot ${weekendBookingCount + 1}/${APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND}`)
+      : 'Book this slot';
+
+    return (
+      <button
+        disabled={loading || !uid || !canBookMore}
+        onClick={() => book(d, hour)}
+        className="w-full rounded-xl p-3 bg-gradient-to-br from-indigo-500 to-purple-600 dark:from-blue-800 dark:to-blue-400 text-white hover:from-indigo-600 hover:to-purple-700 dark:hover:from-indigo-500 dark:hover:to-purple-600 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md hover:shadow-lg"
+        title={!canBookMore ? slotLimitMessage : 'Book this slot'}
+      >
+        <div className="font-semibold text-sm">
+          🎵 Book
+        </div>
+        {isWeekendDate && weekendBookingCount > 0 && (
+          <div className="text-xs mt-1 opacity-80">
+            {weekendBookingCount}/{APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND}
+          </div>
+        )}
+      </button>
+    );
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="text-lg font-semibold">This Week</div>
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
+            📅 This Week&apos;s Schedule
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Book your music room slot
+          </p>
+        </div>
         {isAdmin && (
           <button
             onClick={resetWeek}
-            className="px-3 py-1.5 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+            className="px-4 py-2 rounded-xl bg-red-500 hover:bg-red-600 text-white font-medium shadow-md hover:shadow-lg transition-all disabled:opacity-50 flex items-center gap-2"
             disabled={loading}
           >
-            Reset Week
+            <span>🔄</span> Reset Week
           </button>
         )}
       </div>
 
       {datesLoading ? (
-        <div className="text-center py-8">
-          <div className="text-lg">Loading calendar...</div>
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <div className="animate-spin text-4xl mb-4">🎵</div>
+            <div className="text-lg text-slate-600 dark:text-slate-300">Loading calendar...</div>
+          </div>
         </div>
       ) : dates.length === 0 ? (
-        <div className="text-center py-8">
-          <div className="text-lg text-red-600">Failed to load calendar</div>
+        <div className="text-center py-16 bg-red-50 dark:bg-red-900/20 rounded-2xl border-2 border-red-200 dark:border-red-800">
+          <div className="text-4xl mb-4">❌</div>
+          <div className="text-lg text-red-600 dark:text-red-400">Failed to load calendar</div>
         </div>
-              ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border text-sm">
-                <thead>
-                  <tr>
-                    <th className="border px-2 py-1">Hour</th>
-                    {dates.map((d) => (
-                      <th key={d} className="border px-2 py-1">
-                        {d}
+      ) : (
+        <>
+          {/* Tab Navigation */}
+          <div className="flex gap-2 p-1.5 bg-slate-100 dark:bg-slate-800 rounded-2xl w-fit">
+            <button
+              onClick={() => setActiveTab('weekdays')}
+              className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+                activeTab === 'weekdays'
+                  ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-md'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              <span className="mr-2">📆</span>
+              Weekdays
+              <span className="ml-2 text-xs opacity-70">Mon-Fri</span>
+            </button>
+            <button
+              onClick={() => setActiveTab('weekends')}
+              className={`px-6 py-3 rounded-xl font-semibold transition-all ${
+                activeTab === 'weekends'
+                  ? 'bg-white dark:bg-slate-700 text-purple-600 dark:text-purple-400 shadow-md'
+                  : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
+              }`}
+            >
+              <span className="mr-2">🎉</span>
+              Weekends
+              <span className="ml-2 text-xs opacity-70">Sat-Sun</span>
+            </button>
+          </div>
+
+          {/* Weekdays View */}
+          {activeTab === 'weekdays' && (
+            <div className="bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 dark:bg-slate-800">
+                      <th className="px-4 py-4 text-left text-sm font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800 z-10">
+                        Time
                       </th>
+                      {weekdays.map((d) => {
+                        const { day, date, month } = formatDateDisplay(d);
+                        return (
+                          <th key={d} className="px-3 py-4 text-center border-b border-slate-200 dark:border-slate-700 min-w-[140px]">
+                            <div className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase">{day}</div>
+                            <div className="text-xl font-bold text-slate-700 dark:text-slate-200">{date}</div>
+                            <div className="text-xs text-slate-500 dark:text-slate-400">{month}</div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {APP_CONFIG.WEEKDAY_SLOTS.map((hour) => (
+                      <tr key={hour} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                        <td className="px-4 py-3 font-mono text-sm font-medium text-slate-600 dark:text-slate-300 border-b border-slate-100 dark:border-slate-700/50 sticky left-0 bg-white dark:bg-slate-800/50 z-10">
+                          {formatTime(hour, false)}
+                        </td>
+                        {weekdays.map((d) => (
+                          <td key={d + hour} className="px-2 py-2 border-b border-slate-100 dark:border-slate-700/50">
+                            {renderSlotCell(d, hour, false)}
+                          </td>
+                        ))}
+                      </tr>
                     ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {Array.from({ length: 11 }).map((_, idx) => {
-                    const hour = idx + 17; // 17-27 (5:30 PM to 3:30 AM, 11 slots)
-                    const displayHour = ((hour % 24) + 24) % 24;
-                    const displayTime = `${String(displayHour).padStart(2, '0')}:30`;
-                    return (
-                      <tr key={hour}>
-                        <td className="border px-2 py-1 font-medium">{displayTime}</td>
-                        {dates.map((d) => {
-                          const booking = dateSlotMap[d]?.[hour];
-                          const isMine = booking && booking.userId === uid;
-                          const isTaken = !!booking;
-                          const hasMyBookingOnDate = hasBookingOnDate(d);
-                          const cancellationRequest = booking ? getCancellationRequest(booking.bookingId) : null;
-                          const hasPendingRequest = booking ? hasPendingCancellationRequest(booking.bookingId) : false;
-                          const isCancelled = booking?.cancelled === true;
-                          
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Weekends View - Hourly Slots Table */}
+          {activeTab === 'weekends' && (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 rounded-2xl p-6 border border-purple-200 dark:border-purple-800">
+                <div className="flex items-center gap-3 mb-2">
+                  <span className="text-2xl">🎉</span>
+                  <h3 className="text-lg font-bold text-purple-700 dark:text-purple-300">Weekend Hourly Booking</h3>
+                </div>
+                <p className="text-sm text-purple-600 dark:text-purple-400">
+                  On weekends, you can book up to 2 slots of 1 hour each (morning to night). Each slot is 1 hour long.
+                </p>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden shadow-xl">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800">
+                        <th className="px-4 py-4 text-left text-sm font-semibold text-slate-600 dark:text-slate-300 border-b border-slate-200 dark:border-slate-700 sticky left-0 bg-slate-50 dark:bg-slate-800 z-10">
+                          Time
+                        </th>
+                        {weekends.map((d) => {
+                          const { day, date, month } = formatDateDisplay(d);
                           return (
-                            <td key={d + hour} className="border p-1">
-                              {isTaken && !isCancelled ? (
-                                <div
-                                  className={`text-center rounded px-2 py-1 ${
-                                    isMine 
-                                      ? 'bg-green-200 text-green-800' 
-                                      : 'bg-gray-200 text-gray-600'
-                                  }`}
-                                  title={
-                                    isMine 
-                                      ? `Your booking: ${booking.bandName}` 
-                                      : `Booked by: ${booking.bandName}`
-                                  }
-                                >
-                                  <div className="font-medium">
-                                    {isMine ? 'Your booking' : 'Booked'}
-                                  </div>
-                                  <div className="text-xs truncate">
-                                    {booking.bandName}
-                                  </div>
-                                  {isMine && !hasPendingRequest && (
-                                    <button
-                                      onClick={() => requestCancellation(booking.bookingId)}
-                                      className="text-xs text-red-600 hover:text-red-800 mt-1"
-                                      title="Request cancellation"
-                                    >
-                                      Cancel
-                                    </button>
-                                  )}
-                                  {hasPendingRequest && (
-                                    <div className="text-xs text-orange-600 mt-1">
-                                      Pending
-                                    </div>
-                                  )}
-                                  {cancellationRequest?.status === 'rejected' && (
-                                    <div className="text-xs text-red-600 mt-1">
-                                      Rejected
-                                    </div>
-                                  )}
-                                </div>
-                              ) : isCancelled ? (
-                                <button
-                                  disabled={loading || !uid || hasMyBookingOnDate}
-                                  onClick={() => book(d, hour)}
-                                  className="w-full text-center rounded px-2 py-1 bg-yellow-100 border-2 border-yellow-400 hover:bg-yellow-200 disabled:opacity-50"
-                                  title="This slot was recently cancelled and is available for booking"
-                                >
-                                  <div className="font-medium text-yellow-800">
-                                    Recently Cancelled
-                                  </div>
-                                  <div className="text-xs text-yellow-700 truncate">
-                                    {booking.bandName}
-                                  </div>
-                                  <div className="text-xs text-yellow-600">
-                                    Click to book
-                                  </div>
-                                </button>
-                              ) : (
-                                <button
-                                  disabled={loading || !uid || hasMyBookingOnDate}
-                                  onClick={() => book(d, hour)}
-                                  className="w-full text-center rounded px-2 py-1 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-                                  title={hasMyBookingOnDate ? 'You already have a booking on this date' : 'Book this slot'}
-                                >
-                                  Book
-                                </button>
-                              )}
-                            </td>
+                            <th key={d} className="px-3 py-4 text-center border-b border-slate-200 dark:border-slate-700 min-w-[140px]">
+                              <div className="text-xs font-medium text-slate-400 dark:text-slate-500 uppercase">{day}</div>
+                              <div className="text-xl font-bold text-slate-700 dark:text-slate-200">{date}</div>
+                              <div className="text-xs text-slate-500 dark:text-slate-400">{month}</div>
+                            </th>
                           );
                         })}
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {APP_CONFIG.WEEKEND_SLOTS.map((hour) => (
+                        <tr key={hour} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                          <td className="px-4 py-3 font-mono text-sm font-medium text-slate-600 dark:text-slate-300 border-b border-slate-100 dark:border-slate-700/50 sticky left-0 bg-white dark:bg-slate-800/50 z-10">
+                            {formatTime(hour, true)}
+                          </td>
+                          {weekends.map((d) => (
+                            <td key={d + hour} className="px-2 py-2 border-b border-slate-100 dark:border-slate-700/50">
+                              {renderSlotCell(d, hour, true)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
-          </>
-        )}
+          )}
+
+          {/* Legend */}
+          <div className="flex flex-wrap gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-gradient-to-br from-indigo-500 to-purple-600"></div>
+              <span className="text-slate-600 dark:text-slate-400">Available</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-emerald-500/30 border-2 border-emerald-500/50"></div>
+              <span className="text-slate-600 dark:text-slate-400">Your Booking</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-slate-300 dark:bg-slate-600"></div>
+              <span className="text-slate-600 dark:text-slate-400">Booked</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-4 h-4 rounded bg-amber-200 border-2 border-amber-400"></div>
+              <span className="text-slate-600 dark:text-slate-400">Recently Cancelled</span>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Booking Form Modal */}
       {showBookingForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-black border-2 border-white p-6 rounded-lg max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Book Music Room</h3>
-            <div className="space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-6 py-4">
+              <h3 className="text-xl font-bold text-white">🎸 Book Music Room</h3>
+            </div>
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium mb-1">Date</label>
-                <div className="p-2 bg-gray-800 rounded">{selectedDate}</div>
+                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Date</label>
+                <div className="px-4 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-200 font-medium">
+                  {selectedDate} ({getDayName(selectedDate)})
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Time</label>
-                <div className="p-2 bg-gray-800 rounded">{`${String(((selectedSlot % 24) + 24) % 24).padStart(2, '0')}:30`}</div>
+                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Time</label>
+                <div className="px-4 py-3 bg-slate-100 dark:bg-slate-700 rounded-xl text-slate-700 dark:text-slate-200 font-medium">
+                  {formatTime(selectedSlot, isWeekend(selectedDate))}
+                  {isWeekend(selectedDate) && (
+                    <span className="text-xs text-slate-500 dark:text-slate-400 ml-2">
+                      (1 hour slot)
+                    </span>
+                  )}
+                </div>
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Band Name *</label>
+                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Band Name *</label>
                 <input
                   type="text"
                   value={bandName}
                   onChange={(e) => setBandName(e.target.value)}
                   placeholder="Enter your band name"
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 dark:bg-slate-700 dark:text-white transition-all"
                   autoFocus
                 />
               </div>
-              <div className="flex space-x-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => {
                     setShowBookingForm(false);
                     setBandName('');
                   }}
-                  className="flex-1 px-4 py-2 border rounded hover:bg-gray-800"
+                  className="flex-1 px-4 py-3 border-2 border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium transition-all"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={submitBooking}
                   disabled={loading || !bandName.trim()}
-                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 font-medium shadow-md hover:shadow-lg transition-all"
                 >
-                  {loading ? 'Booking...' : 'Book Slot'}
+                  {loading ? '⏳ Booking...' : '✓ Book Slot'}
                 </button>
               </div>
             </div>
@@ -434,52 +626,51 @@ export default function WeekCalendar() {
 
       {/* Cancellation Request Form Modal */}
       {showCancellationForm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-black border-2 border-white p-6 rounded-lg max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Request Cancellation</h3>
-            <div className="space-y-4">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+            <div className="bg-gradient-to-r from-red-500 to-orange-500 px-6 py-4">
+              <h3 className="text-xl font-bold text-white">❌ Request Cancellation</h3>
+            </div>
+            <div className="p-6 space-y-5">
               <div>
-                <label className="block text-sm font-medium mb-1">Reason for Cancellation *</label>
+                <label className="block text-sm font-medium text-slate-600 dark:text-slate-300 mb-2">Reason for Cancellation *</label>
                 <textarea
                   value={cancellationReason}
                   onChange={(e) => setCancellationReason(e.target.value)}
                   placeholder="Please provide a valid reason for cancellation..."
-                  className="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  className="w-full px-4 py-3 border-2 border-slate-200 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-red-500 dark:bg-slate-700 dark:text-white transition-all resize-none"
                   rows={4}
                   autoFocus
                 />
               </div>
-              <div className="text-sm text-gray-400">
-                Your cancellation request will be reviewed by an administrator. 
-                You will be notified once it&apos;s approved or rejected.
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 border border-blue-200 dark:border-blue-800">
+                <p className="text-sm text-blue-700 dark:text-blue-300">
+                  <span className="font-semibold">💡 Tip:</span> Cancellations requested 2+ hours before the slot time are automatically approved!
+                </p>
               </div>
-              <div className="flex space-x-3">
+              <div className="flex gap-3 pt-2">
                 <button
                   onClick={() => {
                     setShowCancellationForm(false);
                     setCancellationReason('');
                     setSelectedBookingId('');
                   }}
-                  className="flex-1 px-4 py-2 border rounded hover:bg-gray-800"
+                  className="flex-1 px-4 py-3 border-2 border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 font-medium transition-all"
                 >
-                  Cancel
+                  Back
                 </button>
                 <button
                   onClick={submitCancellationRequest}
                   disabled={loading || !cancellationReason.trim()}
-                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-xl hover:from-red-600 hover:to-orange-600 disabled:opacity-50 font-medium shadow-md hover:shadow-lg transition-all"
                 >
-                  {loading ? 'Submitting...' : 'Submit Request'}
+                  {loading ? '⏳ Submitting...' : '✓ Submit Request'}
                 </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
-
     </div>
   );
 }
-
-

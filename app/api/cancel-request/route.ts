@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb, isAdminEmail } from '@/lib/firebaseAdmin';
+import { toZonedTime } from 'date-fns-tz';
+import { APP_CONFIG } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -12,8 +14,37 @@ interface CancellationRequestData {
   slot: number;
   bandName: string;
   reason: string;
-  status: 'pending';
+  status: 'pending' | 'approved';
   createdAt: number;
+  autoApproved?: boolean;
+  adminResponse?: string;
+  adminResponseAt?: number;
+}
+
+// Check if the cancellation is requested at least 2 hours before the slot time
+function isAutoApprovalEligible(bookingDate: string, slot: number): boolean {
+  const now = new Date();
+  const zonedNow = toZonedTime(now, APP_CONFIG.TIMEZONE);
+  
+  // Create the slot datetime
+  // Slot is the hour (e.g., 17 = 5:30 PM, 27 = 3:30 AM next day)
+  const slotDate = new Date(bookingDate);
+  const actualHour = slot % 24;
+  const isNextDay = slot >= 24;
+  
+  if (isNextDay) {
+    slotDate.setDate(slotDate.getDate() + 1);
+  }
+  slotDate.setHours(actualHour, 30, 0, 0); // Slots start at :30
+  
+  // Convert slot time to zoned time for comparison
+  const slotZonedTime = toZonedTime(slotDate, APP_CONFIG.TIMEZONE);
+  
+  // Calculate difference in milliseconds
+  const diffMs = slotZonedTime.getTime() - zonedNow.getTime();
+  const twoHoursMs = 2 * 60 * 60 * 1000;
+  
+  return diffMs >= twoHoursMs;
 }
 
 export async function POST(req: NextRequest) {
@@ -64,6 +95,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Check if auto-approval is eligible (2+ hours before slot time)
+    const shouldAutoApprove = isAutoApprovalEligible(booking.date, booking.slot);
+
     // Create cancellation request
     const cancellationRequest: CancellationRequestData = {
       bookingId,
@@ -74,14 +108,36 @@ export async function POST(req: NextRequest) {
       slot: booking.slot,
       bandName: booking.bandName,
       reason: reason.trim(),
-      status: 'pending',
+      status: shouldAutoApprove ? 'approved' : 'pending',
       createdAt: Date.now(),
+      ...(shouldAutoApprove && {
+        autoApproved: true,
+        adminResponse: 'Auto-approved: Cancellation requested more than 2 hours before slot time',
+        adminResponseAt: Date.now(),
+      }),
     };
     
     const newRequestRef = adminDb.ref('cancellationRequests').push();
     await newRequestRef.set(cancellationRequest);
 
-    return NextResponse.json({ ok: true, requestId: newRequestRef.key });
+    // If auto-approved, also mark the booking as cancelled
+    if (shouldAutoApprove) {
+      await adminDb.ref(`bookings/${bookingId}`).update({
+        cancelled: true,
+        cancelledAt: Date.now(),
+        cancelledBy: uid,
+        cancelledByEmail: email,
+      });
+    }
+
+    return NextResponse.json({ 
+      ok: true, 
+      requestId: newRequestRef.key,
+      autoApproved: shouldAutoApprove,
+      message: shouldAutoApprove 
+        ? 'Your cancellation has been automatically approved (requested 2+ hours before slot time)'
+        : 'Cancellation request submitted. Waiting for admin approval.'
+    });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : 'Cancellation request error';
     console.error('POST /api/cancel-request error:', e);

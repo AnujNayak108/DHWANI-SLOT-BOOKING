@@ -1,5 +1,5 @@
 "use client";
-import { LOGO_PATH } from '@/lib/config';
+import { LOGO_PATH } from '../lib/config';
 import Image from 'next/image';
 
 export default function LoadingScreen() {

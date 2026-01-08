@@ -24,6 +24,7 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
 NEXT_PUBLIC_FIREBASE_APP_ID=
 NEXT_PUBLIC_ADMIN_EMAIL=admin@example.com,admin2@example.com
+NEXT_PUBLIC_LOGO_PATH=/logo.png
 
 FIREBASE_PROJECT_ID=
 FIREBASE_CLIENT_EMAIL=
@@ -32,8 +33,10 @@ FIREBASE_PRIVATE_KEY=-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----
 
 Notes
 - `NEXT_PUBLIC_ADMIN_EMAIL` supports multiple admin emails separated by commas (e.g., `admin@example.com,admin2@example.com`). These admins can reset the week and manage cancellation requests.
+- `NEXT_PUBLIC_LOGO_PATH` (optional): Path to your logo image for the loading screen. Place the logo in the `public` folder and set the path (e.g., `/logo.png`). If not provided, a music emoji will be displayed instead.
 - For the Admin SDK, use a Service Account key from Firebase console (Project settings > Service accounts). Replace real newlines with `\n`.
 - **Timezone Configuration**: The app uses UTC timezone by default for consistent date calculations across all deployments. To change the timezone, edit `lib/config.ts` and update the `TIMEZONE` value (e.g., 'America/New_York', 'Europe/London', 'Asia/Kolkata').
+- **Weekend Booking**: On weekends (Saturday & Sunday), each band can book up to 2 slots of 1 hour each. Weekday bookings are limited to 1 slot per day.
 
 Run
 ```

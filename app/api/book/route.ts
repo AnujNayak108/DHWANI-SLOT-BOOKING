@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { adminAuth, adminDb, isAdminEmail } from '@/lib/firebaseAdmin';
+import { isWeekend, APP_CONFIG } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
@@ -18,6 +19,7 @@ interface FirebaseBooking {
   date: string;
   slot: number;
   cancelled?: boolean;
+  userId?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -49,7 +51,12 @@ export async function POST(req: NextRequest) {
       createdAt: Date.now() 
     });
 
-    // Enforce one booking per day per user (instead of per week)
+    // Check if it's a weekend
+    const isWeekendDate = isWeekend(date);
+    
+    // Enforce booking limits
+    // Weekdays: 1 booking per day per user
+    // Weekends: 2 bookings per day per user (each band can book 2 slots of 1 hour each)
     const existingBookings = await adminDb
       .ref('bookings')
       .orderByChild('userId')
@@ -57,14 +64,25 @@ export async function POST(req: NextRequest) {
       .once('value');
     
     const existingBookingsData = existingBookings.val() as Record<string, FirebaseBooking> | null;
-    const hasExistingBookingOnDate = existingBookingsData ? 
-      Object.values(existingBookingsData).some((booking: FirebaseBooking) => 
-        booking.date === date && !booking.cancelled
-      ) : 
-      false;
     
-    if (hasExistingBookingOnDate) {
-      return NextResponse.json({ error: 'You already booked a slot on this date' }, { status: 400 });
+    if (existingBookingsData) {
+      const bookingsOnDate = Object.values(existingBookingsData).filter(
+        (booking: FirebaseBooking) => booking.date === date && !booking.cancelled
+      );
+      
+      if (isWeekendDate) {
+        // Weekend: Maximum 2 slots per band
+        if (bookingsOnDate.length >= APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND) {
+          return NextResponse.json({ 
+            error: `You can only book ${APP_CONFIG.WEEKEND_MAX_SLOTS_PER_BAND} slots per day on weekends` 
+          }, { status: 400 });
+        }
+      } else {
+        // Weekday: Only 1 slot per day
+        if (bookingsOnDate.length >= 1) {
+          return NextResponse.json({ error: 'You already booked a slot on this date' }, { status: 400 });
+        }
+      }
     }
 
     // Ensure slot not taken (excluding cancelled bookings)
